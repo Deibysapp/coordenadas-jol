@@ -1,61 +1,59 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+import os
 import io
+from streamlit_geolocation import streamlit_geolocation
 
-st.set_page_config(page_title="Coordenadas JOL", layout="centered")
+# Configuración de página
+st.set_page_config(page_title="Coordenadas JOL", layout="wide")
 
-if 'registros' not in st.session_state: st.session_state.registros = []
+DB_FILE = "MIC COORDENADAS.xlsx"
 
-st.title("📍 Coordenadas JOL")
+def cargar_db():
+    if os.path.exists(DB_FILE):
+        # engine='openpyxl' soluciona el ValueError
+        df = pd.read_excel(DB_FILE, engine='openpyxl', dtype=str)
+        df.columns = df.columns.str.strip().str.upper()
+        return df
+    else:
+        st.error(f"El archivo {DB_FILE} no está en la carpeta.")
+        return pd.DataFrame()
 
-asesor_actual = st.selectbox("Seleccione su código de asesor:", 
-                      ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "V8", "V9", "V10", "V11", "V12"])
+df_maestra = cargar_db()
 
-archivo = st.file_uploader("Cargar base de clientes (Excel)", type=["xlsx"])
+st.title("📍 Coordenadas JOL - Sistema de Gestión")
 
-if archivo:
-    df = pd.read_excel(archivo, dtype=str)
-    df.columns = df.columns.str.strip().str.upper()
-    df['ASESOR'] = df['ASESOR'].str.strip()
-    
-    df_filtrado = df[df['ASESOR'] == asesor_actual]
-    
-    if not df_filtrado.empty:
-        busqueda = st.text_input("🔍 Buscador inteligente:")
-        if busqueda:
-            df_filtrado = df_filtrado[df_filtrado['NOMBRE'].str.contains(busqueda, case=False, na=False)]
-        
-        cliente_seleccionado = st.selectbox("Seleccione cliente:", df_filtrado['NOMBRE'].tolist())
-        
-        if st.button("Capturar Coordenada"):
-            codigo_cliente = df_filtrado.loc[df_filtrado['NOMBRE'] == cliente_seleccionado, 'CODIGO'].values[0]
-            nueva_entrada = {
-                "CODIGO": codigo_cliente,
-                "NOMBRE": cliente_seleccionado,
-                "ASESOR": asesor_actual,
-                "COORDENADA X": "7.7667", # Valor simulado, reemplazar por GPS luego
-                "COORDENADA Y": "-72.2167"
-            }
-            st.session_state.registros.append(nueva_entrada)
-            st.success(f"✅ Registrado: {cliente_seleccionado}")
+if not df_maestra.empty:
+    asesor = st.selectbox("Seleccione asesor:", sorted(df_maestra['ASESOR'].unique()))
+    df_asesor = df_maestra[df_maestra['ASESOR'].astype(str).str.strip() == asesor]
 
-# --- Exportar a Excel real ---
-if st.session_state.registros:
-    df_final = pd.DataFrame(st.session_state.registros)
-    
+    # Resaltado visual en verde
+    def resaltar_fila(row):
+        val_x = str(row.get('COORDENADA X', '0.00'))
+        es_valido = val_x != "0.00" and val_x != "nan" and val_x != ""
+        return ['background-color: #90EE90' if es_valido else ''] * len(row)
+
+    st.dataframe(df_asesor.style.apply(resaltar_fila, axis=1), use_container_width=True)
+
+    cliente = st.selectbox("Seleccionar cliente:", df_asesor['NOMBRE'].tolist())
+    location = streamlit_geolocation()
+
+    if location and location['latitude']:
+        if st.button("Guardar Coordenadas GPS"):
+            lat, lon = str(location['latitude']), str(location['longitude'])
+            try:
+                idx = df_maestra[df_maestra['NOMBRE'] == cliente].index[0]
+                df_maestra.at[idx, 'COORDENADA X'] = lat
+                df_maestra.at[idx, 'COORDENADA Y'] = lon
+                df_maestra.to_excel(DB_FILE, index=False, engine='openpyxl')
+                st.success("✅ ¡Coordenadas guardadas!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error al guardar: {e}. Asegúrate de cerrar el archivo Excel.")
+
+    # Descarga de reporte
     buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        df_final.to_excel(writer, index=False, sheet_name='Reporte')
-    
-    st.download_button(
-        label="📥 Descargar Reporte en Excel",
-        data=buffer.getvalue(),
-        file_name="reporte_coordenadas.xlsx",
-        mime="application/vnd.ms-excel"
-    )
-
-st.markdown("---")
-st.caption("Deibys Ibañes 2026")
-
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_maestra.to_excel(writer, index=False)
+    st.download_button("📥 Descargar Reporte Excel", buffer.getvalue(), "Reporte_Final.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
