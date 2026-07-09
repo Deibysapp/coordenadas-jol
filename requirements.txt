@@ -1,8 +1,7 @@
-text
-
 streamlit
 pandas
-streamlit-geolocation
 openpyxl
-
-
+xlsxwriter
+gspread
+google-auth
+streamlit-geolocation
