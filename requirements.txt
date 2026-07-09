@@ -1,6 +1,8 @@
-tex
+text
 
 streamlit
 pandas
+streamlit-geolocation
 openpyxl
-xlsxwriter
+
+
